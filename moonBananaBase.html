@@ -36,6 +36,75 @@
     background:var(--space-black); color:var(--moon-gray-dim); font-size:12px; letter-spacing:0.08em;
     z-index:50; transition:opacity .4s ease;
   }
+
+  /* ---- 永続レイヤー: YouTube小窓(ルート切替の影響を受けない) ---- */
+  #yt-window{
+    position:fixed; bottom:26px; right:26px;
+    width:220px;
+    background:var(--space-black-2);
+    border:1px solid var(--crater-line);
+    border-radius:10px;
+    box-shadow:0 12px 40px rgba(0,0,0,0.6);
+    overflow:hidden;
+    opacity:0; transform:translateY(16px) scale(0.96);
+    pointer-events:none;
+    transition:opacity .35s ease, transform .35s ease;
+    z-index:100;
+  }
+  #yt-window.visible{ opacity:1; transform:translateY(0) scale(1); pointer-events:auto; }
+  #yt-window-head{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:6px 10px; background:var(--space-black);
+    font-size:10px; color:var(--moon-gray-dim); letter-spacing:0.06em;
+    border-bottom:1px solid var(--crater-line);
+  }
+  #yt-window-head span.dot{ display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--banana); margin-right:6px; }
+  #yt-close{ background:none; border:none; color:var(--moon-gray-dim); cursor:pointer; font-size:13px; line-height:1; padding:0 2px; }
+  #yt-close:hover{ color:var(--banana); }
+  #yt-player-wrap{ position:relative; width:100%; aspect-ratio:16/9; background:#000; }
+  #yt-player-wrap iframe{ position:absolute; inset:0; width:100%; height:100%; border:0; pointer-events:none; }
+  /* ↑ iframeへのクリックを禁止し、フォーカスが奪われてWASDが効かなくなる問題を回避。
+     操作はレコードのクリック/閉じるボタンなど自作UI経由に統一する。 */
+
+  /* ---- ルート: レコード詳細(オーバーレイ。ページ遷移ではなくDOM切替) ---- */
+  #record-route{
+    position:fixed; inset:0; z-index:40;
+    background:rgba(10,12,18,0.92);
+    backdrop-filter: blur(6px);
+    display:none;
+    align-items:center; justify-content:center;
+    flex-direction:column;
+    gap:18px;
+  }
+  #record-route.active{ display:flex; }
+  #record-route h2{ color:var(--banana); font-size:16px; letter-spacing:0.1em; margin:0; }
+  #record-route p{ color:var(--moon-gray-dim); font-size:12px; max-width:320px; text-align:center; line-height:1.7; }
+  #record-list{ display:flex; flex-direction:column; gap:8px; width:260px; }
+  .jukebox-item{
+    background:var(--space-black-2); border:1px solid var(--crater-line); color:var(--moon-gray);
+    border-radius:8px; padding:10px 14px; font-family:inherit; font-size:13px; text-align:left;
+    cursor:pointer; display:flex; align-items:center; justify-content:space-between;
+    transition: border-color .2s ease, background .2s ease;
+  }
+  .jukebox-item:hover{ border-color:var(--banana); }
+  .jukebox-item.active{ background:rgba(242,193,78,0.12); border-color:var(--banana); color:var(--banana); }
+  .jukebox-item .dot{ width:6px; height:6px; border-radius:50%; background:var(--banana); opacity:0; }
+  .jukebox-item.active .dot{ opacity:1; }
+  #back-to-crater{
+    background:var(--banana); color:#241a06; border:none; border-radius:6px;
+    padding:9px 18px; font-size:12px; font-weight:700; cursor:pointer; font-family:inherit;
+  }
+  #back-to-crater:hover{ background:#ffd873; }
+
+  /* ---- ルート: 月オーバーレイ(Mキーで全体像を表示するモーダル) ---- */
+  #moon-overlay{
+    position:fixed; inset:0; z-index:60;
+    background:rgba(10,12,18,0.92);
+    backdrop-filter: blur(6px);
+    display:none;
+  }
+  #moon-overlay.active{ display:block; }
+  #moon-canvas{ position:absolute; inset:0; width:100%; height:100%; display:block; }
 </style>
 </head>
 <body>
@@ -49,12 +118,41 @@
   <div class="line">基地モデル倍率: <b id="model-scale"></b></div>
   <div class="line">ドラッグで視点回転・スクロールでズーム</div>
   <div class="line"><b>Gキー</b>で地上モード切替(WASDで移動)</div>
+  <div class="line"><b>Spaceキー</b>でジャンプ(月重力)</div>
   <div class="line">モード: <b id="mode-label">俯瞰モード</b></div>
+</div>
+
+<!-- 永続レイヤー: どのルートにいても消えないYouTube小窓 -->
+<div id="yt-window">
+  <div id="yt-window-head">
+    <span><span class="dot"></span>NOW PLAYING</span>
+    <button id="yt-close">×</button>
+  </div>
+  <div id="yt-player-wrap">
+    <iframe id="yt-iframe"
+      src="https://www.youtube.com/embed/m0BFZkPsoWY?enablejsapi=1&playsinline=1&rel=0"
+      allow="autoplay; encrypted-media"
+      allowfullscreen></iframe>
+  </div>
+</div>
+
+<!-- ルート: レコード詳細(実際のページ遷移ではなくオーバーレイ表示) -->
+<div id="record-route">
+  <h2>♪ MOON BANANA JUKEBOX</h2>
+  <p>好きな曲を選んでください。右下の小窓は「月面(クレーター地上)」に戻っても再生を続けます。</p>
+  <div id="record-list"></div>
+  <button id="back-to-crater">← クレーター地上に戻る</button>
+</div>
+
+<!-- ルート: 月オーバーレイ(Mキーで表示/非表示。パネルなし、月本体のみ) -->
+<div id="moon-overlay">
+  <canvas id="moon-canvas"></canvas>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/RGBELoader.js"></script>
 <script>
 /* =========================================================
    基本セットアップ
@@ -64,6 +162,10 @@ const renderer = new THREE.WebGLRenderer({ canvas, antialias:true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.outputEncoding = THREE.sRGBEncoding;
+renderer.toneMapping = THREE.ACESFilmicToneMapping; // 映画的な階調(白飛び/黒つぶれを自然に)
+renderer.toneMappingExposure = 1.0;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap; // 柔らかい影(硬い影は安っぽく見えるため)
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x0a0c12);
@@ -81,10 +183,59 @@ controls.maxDistance = 30;          // 遠すぎて地形の端(未整備)が見
 controls.maxPolarAngle = Math.PI * 0.49;
 controls.update();
 
+/* ---------------------------------------------------------
+   環境マップ: 公式サンプル(webgl_loader_gltf)と同じ手法。
+   実写HDRIをRGBELoaderで読み込み、PMREMGenerator.fromEquirectangular()で変換する。
+   (前回壊れたのはfromScene=3Dシーンをその場で撮影する処理。
+    こちらはfromEquirectangular=静止画を変換する処理で、定番かつ安定した手法)
+   --------------------------------------------------------- */
+function buildSimpleEnvironment(){
+  // HDRIの読み込みが終わるまでの仮の環境(グラデーション)
+  const canvasEl = document.createElement('canvas');
+  canvasEl.width = 256; canvasEl.height = 256;
+  const ctx = canvasEl.getContext('2d');
+  const grad = ctx.createLinearGradient(0, 0, 0, 256);
+  grad.addColorStop(0, '#dfe4ec');
+  grad.addColorStop(0.55, '#8b8d94');
+  grad.addColorStop(1, '#1c1d22');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 256, 256);
+  const tex = new THREE.CanvasTexture(canvasEl);
+  tex.mapping = THREE.EquirectangularReflectionMapping;
+  tex.encoding = THREE.sRGBEncoding;
+  return tex;
+}
+scene.environment = buildSimpleEnvironment(); // 仮の環境(HDRI読み込み完了後に差し替わる)
+
+const pmremGenerator = new THREE.PMREMGenerator(renderer);
+pmremGenerator.compileEquirectangularShader();
+
+new THREE.RGBELoader()
+  .setDataType(THREE.UnsignedByteType)
+  .load(
+    // ローカルに置いた環境HDRI(暗め・星空系がおすすめ。Poly Havenの「Night」カテゴリ等)
+    './environment.hdr',
+    (hdrTexture) => {
+      const envMap = pmremGenerator.fromEquirectangular(hdrTexture).texture;
+      scene.environment = envMap;
+      hdrTexture.dispose();
+      pmremGenerator.dispose();
+    },
+    undefined,
+    (err) => {
+      console.error('HDRI読み込みエラー(仮のグラデーション環境のまま続行します):', err);
+    }
+  );
+
 // ライティング
-scene.add(new THREE.AmbientLight(0x445066, 0.7));
-const key = new THREE.DirectionalLight(0xfff2cf, 1.2);
+scene.add(new THREE.AmbientLight(0x445066, 0.5));
+const key = new THREE.DirectionalLight(0xfff2cf, 1.4);
 key.position.set(8, 12, 6);
+key.castShadow = true;
+key.shadow.mapSize.set(2048, 2048);
+key.shadow.camera.left = -20; key.shadow.camera.right = 20;
+key.shadow.camera.top = 20; key.shadow.camera.bottom = -20;
+key.shadow.bias = -0.0005;
 scene.add(key);
 const rim = new THREE.PointLight(0xf2c14e, 0.5, 20);
 rim.position.set(-6, 4, -4);
@@ -110,7 +261,8 @@ scene.add(rim);
 /* =========================================================
    地形プレースホルダー(本番のクレーターDEMに差し替え予定)
    ========================================================= */
-const WORLD_SIZE = 40;
+const WORLD_SIZE = 40; // 歩ける範囲・ビルドパッド判定の基準(ゲームプレイ上の値。変更しない)
+const TERRAIN_EXTENT = WORLD_SIZE * 2; // 見た目の地形範囲(俯瞰時の「四方の切れ目」を遠くへ追いやるための拡張)
 const BUILD_PAD_RADIUS = Math.sqrt((WORLD_SIZE ** 2 / 8) / Math.PI);
 
 // 敷地(ビルドパッド)の可視化リング(先に作っておき、地形完成後に高さだけ合わせる)
@@ -133,7 +285,7 @@ function isWithinBuildPad(x, z){
    同じサンプリング関数を getTerrainHeightAt() でも使うので、
    見た目と当たり判定が必ず一致する。
    --------------------------------------------------------- */
-const TERRAIN_SEGMENTS = 256; // CPU側で処理するため、GPU版より少なめが目安
+const TERRAIN_SEGMENTS = 512; // TERRAIN_EXTENTを2倍にした分、歩行範囲の解像度を維持するため256→512に
 const DISPLACEMENT_SCALE = 2; // 前回確認した値。地形が破綻したら調整
 
 let ground = null;
@@ -157,8 +309,10 @@ function sampleHeightBilinear(u, v){
 }
 
 // world座標 → PlaneGeometryのUVへの変換(下のbuildTerrainでの頂点配置と対応させる)
+// TERRAIN_EXTENT基準(見た目の地形サイズ)。ハイトマップ・アルベド画像は
+// どちらもこのTERRAIN_EXTENT全体をカバーする前提(中央にWORLD_SIZE分の高精細データを想定)
 function worldToUV(x, z){
-  return { u: (x / WORLD_SIZE) + 0.5, v: 0.5 - (z / WORLD_SIZE) };
+  return { u: (x / TERRAIN_EXTENT) + 0.5, v: 0.5 - (z / TERRAIN_EXTENT) };
 }
 
 function getTerrainHeightAt(x, z){
@@ -175,7 +329,7 @@ function buildTerrain(heightImg, albedoTexture){
   cctx.drawImage(heightImg, 0, 0);
   terrainSample = { data: cctx.getImageData(0, 0, w, h).data, w, h };
 
-  const geo = new THREE.PlaneGeometry(WORLD_SIZE, WORLD_SIZE, TERRAIN_SEGMENTS, TERRAIN_SEGMENTS);
+  const geo = new THREE.PlaneGeometry(TERRAIN_EXTENT, TERRAIN_EXTENT, TERRAIN_SEGMENTS, TERRAIN_SEGMENTS);
   const uvAttr = geo.attributes.uv;
   const posAttr = geo.attributes.position;
   for (let i = 0; i < posAttr.count; i++){
@@ -194,10 +348,14 @@ function buildTerrain(heightImg, albedoTexture){
 
   ground = new THREE.Mesh(geo, mat);
   ground.rotation.x = -Math.PI / 2;
+  ground.receiveShadow = true;
   scene.add(ground);
 
   // 敷地リングの高さを地形(ほぼ平坦のはず)に合わせる
   padRing.position.y = getTerrainHeightAt(0, 0) + 0.02;
+
+  // ※「実シーンを環境マップとして焼き直す」処理は白飛びの原因になったため一旦撤回。
+  //   scene.environmentは起動時に生成した仮のスタジオ環境マップのまま維持する。
 
   pendingOnTerrainReady.forEach(fn => fn());
   pendingOnTerrainReady.length = 0;
@@ -214,9 +372,55 @@ function tryBuildTerrain(){
   }
 }
 
-textureLoader.load('./schrodinger_albedo.png', (tex) => {
+// --- 月面画像(アルベド)の周囲を拡張 ---
+// 新しい高精細画像は用意せず、既存のschrodinger_albedo.pngから
+// 最頻色(≒地の色)を求めてベタ塗りし、中央に元画像を実際の敷地比率で
+// 配置することで、追加のダウンロード容量ゼロのまま見た目の範囲だけ広げる。
+function computeModeColor(img){
+  const sampleSize = 128; // ヒストグラム集計用に縮小(処理を軽くするため)
+  const cv = document.createElement('canvas');
+  cv.width = sampleSize; cv.height = sampleSize;
+  const ctx = cv.getContext('2d');
+  ctx.drawImage(img, 0, 0, sampleSize, sampleSize);
+  const data = ctx.getImageData(0, 0, sampleSize, sampleSize).data;
+
+  const BUCKET = 16; // 256階調を16段階に量子化してヒストグラム化
+  const counts = new Map();
+  for (let i = 0; i < data.length; i += 4){
+    const r = data[i] >> 4, g = data[i+1] >> 4, b = data[i+2] >> 4;
+    const key = (r << 8) | (g << 4) | b;
+    counts.set(key, (counts.get(key) || 0) + 1);
+  }
+  let bestKey = 0, bestCount = -1;
+  counts.forEach((count, key) => { if (count > bestCount){ bestCount = count; bestKey = key; } });
+  const r = ((bestKey >> 8) & 0xF) * BUCKET + BUCKET / 2;
+  const g = ((bestKey >> 4) & 0xF) * BUCKET + BUCKET / 2;
+  const b = (bestKey & 0xF) * BUCKET + BUCKET / 2;
+  return `rgb(${r},${g},${b})`;
+}
+
+function buildExtendedAlbedoTexture(img){
+  const CANVAS_SIZE = 2048; // 拡張分は単色なのでこの解像度で十分(元画像より大きくしない=メモリを抑える)
+  const cv = document.createElement('canvas');
+  cv.width = CANVAS_SIZE; cv.height = CANVAS_SIZE;
+  const ctx = cv.getContext('2d');
+
+  ctx.fillStyle = computeModeColor(img);
+  ctx.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
+
+  // 中央に元画像を、実際の敷地サイズの比率(WORLD_SIZE/TERRAIN_EXTENT)で配置
+  const innerRatio = WORLD_SIZE / TERRAIN_EXTENT; // 例: 40/80 = 0.5
+  const innerSize = CANVAS_SIZE * innerRatio;
+  const offset = (CANVAS_SIZE - innerSize) / 2;
+  ctx.drawImage(img, offset, offset, innerSize, innerSize);
+
+  const tex = new THREE.CanvasTexture(cv);
   tex.encoding = THREE.sRGBEncoding;
-  albedoTextureLoaded = tex;
+  return tex;
+}
+
+textureLoader.load('./schrodinger_albedo.png', (tex) => {
+  albedoTextureLoaded = buildExtendedAlbedoTexture(tex.image);
   tryBuildTerrain();
 }, undefined, (err) => console.error('月面画像の読み込みエラー:', err));
 
@@ -262,6 +466,9 @@ function placeBaseModel(){
   const wrapper = new THREE.Group();
   wrapper.add(inner);
   wrapper.scale.setScalar(MODEL_SCALE);
+  inner.traverse((child) => {
+    if (child.isMesh) { child.castShadow = true; child.receiveShadow = true; }
+  });
 
   const groundY = getTerrainHeightAt(BASE_PLACEMENT.x, BASE_PLACEMENT.z); // 地形完成後なので正しい高さが取れる
   wrapper.position.set(BASE_PLACEMENT.x, groundY, BASE_PLACEMENT.z);
@@ -286,10 +493,222 @@ loader.load('./banana-base.glb', (gltf) => {
 });
 
 /* =========================================================
-   地上モード(WASD移動)
+   crown.glb: 金属+宝石の質感強化つき装飾オブジェクト
    ========================================================= */
-const EYE_HEIGHT = 0.5;   // 地面から目線までの高さ(world units)
-const MOVE_SPEED = 6;     // units/sec
+// pygltflibでノード変形(translation/rotation/scale)を反映して算出したワールドbbox
+const CROWN_BOUNDS = {
+  min: [-7.79530671, -0.8506031, -7.91554713],
+  max: [7.81189022, 11.63974465, 7.49542997],
+};
+const crownSize = CROWN_BOUNDS.max.map((v,i) => v - CROWN_BOUNDS.min[i]);
+const crownMaxDim = Math.max(crownSize[0], crownSize[2]);
+
+// 敷地に対してごく控えめな「置物」サイズ(基地よりだいぶ小さく)
+const CROWN_TARGET_FOOTPRINT = (BUILD_PAD_RADIUS * 2) / 40;
+const CROWN_SCALE = CROWN_TARGET_FOOTPRINT / crownMaxDim;
+const CROWN_PLACEMENT = { x: -3.2, z: -2.0, rotationY: 0.8 };
+
+if (!isWithinBuildPad(CROWN_PLACEMENT.x, CROWN_PLACEMENT.z)) {
+  console.warn('crownの配置座標が敷地範囲外です:', CROWN_PLACEMENT);
+}
+
+// Blenderで設定された元の値(色・金属度・粗さ)をそのまま尊重し、
+// マテリアルクラスだけMeshPhysicalMaterialに上げて環境マップの映り込みを効かせる
+function upgradeCrownMaterial(mesh){
+  const old = mesh.material;
+  mesh.material = new THREE.MeshPhysicalMaterial({
+    color: old.color,
+    metalness: old.metalness,
+    roughness: old.roughness,
+    envMapIntensity: 1.0,
+  });
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+}
+
+function placeCrown(){
+  const inner = gltfModelScene2;
+  inner.traverse((child) => {
+    if (child.isMesh) upgradeCrownMaterial(child);
+  });
+
+  const centerX = (CROWN_BOUNDS.min[0] + CROWN_BOUNDS.max[0]) / 2;
+  const centerZ = (CROWN_BOUNDS.min[2] + CROWN_BOUNDS.max[2]) / 2;
+  const bottomY = CROWN_BOUNDS.min[1];
+  inner.position.set(-centerX, -bottomY, -centerZ);
+
+  const wrapper = new THREE.Group();
+  wrapper.add(inner);
+  wrapper.scale.setScalar(CROWN_SCALE);
+
+  const place = () => {
+    const groundY = getTerrainHeightAt(CROWN_PLACEMENT.x, CROWN_PLACEMENT.z);
+    wrapper.position.set(CROWN_PLACEMENT.x, groundY, CROWN_PLACEMENT.z);
+  };
+  if (terrainSample) place(); else pendingOnTerrainReady.push(place);
+  wrapper.rotation.y = CROWN_PLACEMENT.rotationY;
+
+  scene.add(wrapper);
+}
+
+let gltfModelScene2 = null;
+loader.load('./crown.glb', (gltf) => {
+  gltfModelScene2 = gltf.scene;
+  placeCrown();
+}, undefined, (err) => {
+  console.error('crown.glb読み込みエラー:', err);
+});
+
+/* =========================================================
+   レコードオブジェクト設置(複数)+ クリックでレコードルートへ
+   ========================================================= */
+function buildVinylTexture(label){
+  const size = 512;
+  const cv = document.createElement('canvas');
+  cv.width = size; cv.height = size;
+  const ctx = cv.getContext('2d');
+  const cx = size/2, cy = size/2;
+  ctx.fillStyle = '#0d0d0f';
+  ctx.fillRect(0,0,size,size);
+  ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+  for(let r=size*0.24; r<size*0.49; r+=3){
+    ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI*2);
+    ctx.lineWidth = (r % 9 < 2) ? 1.4 : 0.6; ctx.stroke();
+  }
+  const labelR = size*0.22;
+  const grad = ctx.createRadialGradient(cx,cy,0,cx,cy,labelR);
+  grad.addColorStop(0, '#f2c14e'); grad.addColorStop(1, '#c98f1f');
+  ctx.beginPath(); ctx.arc(cx, cy, labelR, 0, Math.PI*2); ctx.fillStyle = grad; ctx.fill();
+  ctx.fillStyle = '#241a06'; ctx.textAlign = 'center';
+  ctx.font = 'bold 40px Courier New';
+  ctx.fillText(label, cx, cy + 12);
+  return new THREE.CanvasTexture(cv);
+}
+
+// --- 配置データ(位置・動画IDは仮。あとで自由に増減・変更してよい) ---
+const RECORDS = [
+  { id: 'trackA', label: 'A', videoId: 'm0BFZkPsoWY', x: -2.5, z: 1.8,  rotationY: 0.3 },
+  { id: 'trackB', label: 'B', videoId: 'dQw4w9WgXcQ', x: 3.4,  z: 3.0,  rotationY: -0.5 },
+  { id: 'trackC', label: 'C', videoId: 'aqz-KE-bpKQ', x: -1.0, z: -3.2, rotationY: 1.1 },
+];
+
+const RECORD_SCALE = 0.12; // 敷地に対してごく小さい「置物」スケール(建物とは別基準)
+const RECORD_PLACEMENT = { x: -2.5, z: 1.8, rotationY: 0.3 };
+
+function createRecord(placement){
+  const group = new THREE.Group();
+  const discGeo = new THREE.CylinderGeometry(1, 1, 0.04, 64);
+  const discMat = new THREE.MeshStandardMaterial({ map: buildVinylTexture('♪'), roughness:0.4, metalness:0.3 });
+  const disc = new THREE.Mesh(discGeo, discMat);
+  group.add(disc);
+  group.scale.setScalar(RECORD_SCALE);
+  group.rotation.y = placement.rotationY || 0;
+
+  if (!isWithinBuildPad(placement.x, placement.z)) {
+    console.warn('レコードの配置座標が敷地範囲外です:', placement);
+  }
+  scene.add(group);
+
+  const place = () => {
+    const y = getTerrainHeightAt(placement.x, placement.z);
+    group.position.set(placement.x, y + 0.02, placement.z);
+  };
+  if (terrainSample) place(); else pendingOnTerrainReady.push(place);
+
+  return { group, disc };
+}
+
+const { group: recordGroup, disc: recordDisc } = createRecord(RECORD_PLACEMENT);
+let spinningRecordId = null; // 現在再生中の曲id(ジュークボックス側の選曲と連動)
+
+// --- クリック判定(ドラッグと区別するため、mousedown→mouseupの移動量をチェック) ---
+const raycaster = new THREE.Raycaster();
+const mouseNDC = new THREE.Vector2();
+let downPos = null;
+
+renderer.domElement.addEventListener('pointerdown', (e) => { downPos = { x: e.clientX, y: e.clientY }; });
+renderer.domElement.addEventListener('pointerup', (e) => {
+  if (!downPos) return;
+  const moved = Math.hypot(e.clientX - downPos.x, e.clientY - downPos.y);
+  downPos = null;
+  if (moved > 6) return; // ドラッグ(視点回転)とみなしクリック扱いしない
+
+  mouseNDC.x = (e.clientX / window.innerWidth) * 2 - 1;
+  mouseNDC.y = -(e.clientY / window.innerHeight) * 2 + 1;
+  raycaster.setFromCamera(mouseNDC, camera);
+  const hit = raycaster.intersectObject(recordDisc)[0];
+  if (hit) onRecordClicked();
+});
+
+function onRecordClicked(){
+  navigateTo('record');
+  playYoutube(RECORDS[0]); // ジュークボックスを開いた時点で1曲目を自動再生(お好みで変更可)
+}
+
+/* =========================================================
+   ルート切替(SPA: ページ遷移せずDOM表示だけ切り替える)
+   ========================================================= */
+function navigateTo(route){
+  document.getElementById('record-route').classList.toggle('active', route === 'record');
+  if (route === 'record') renderJukeboxList();
+}
+document.getElementById('back-to-crater').addEventListener('click', () => navigateTo('crater'));
+
+// --- ジュークボックスのリストUI: 全曲を表示し、どれでも選び直せる ---
+const jukeboxListEl = document.getElementById('record-list');
+function renderJukeboxList(){
+  jukeboxListEl.innerHTML = '';
+  RECORDS.forEach((record) => {
+    const btn = document.createElement('button');
+    btn.className = 'jukebox-item' + (record.id === spinningRecordId ? ' active' : '');
+    btn.innerHTML = `<span>TRACK ${record.label}</span><span class="dot"></span>`;
+    btn.addEventListener('click', () => playYoutube(record));
+    jukeboxListEl.appendChild(btn);
+  });
+}
+
+/* =========================================================
+   YouTube連携(postMessage方式。永続レイヤーなのでルート切替の影響を受けない)
+   ========================================================= */
+const ytIframe = document.getElementById('yt-iframe');
+const ytWindow = document.getElementById('yt-window');
+
+function sendYtCommand(func, args = []){
+  if (!ytIframe || !ytIframe.contentWindow) return;
+  ytIframe.contentWindow.postMessage(JSON.stringify({ event:'command', func, args }), '*');
+}
+function playYoutube(record){
+  ytWindow.classList.add('visible');
+  sendYtCommand('loadVideoById', [record.videoId]); // 動画自体を切り替える(loadVideoByIdは読み込み後に自動再生)
+  spinningRecordId = record.id;
+  if (document.getElementById('record-route').classList.contains('active')) renderJukeboxList();
+}
+document.getElementById('yt-close').addEventListener('click', () => {
+  sendYtCommand('pauseVideo');
+  spinningRecordId = null;
+  ytWindow.classList.remove('visible');
+});
+window.addEventListener('message', (e) => {
+  if (typeof e.data !== 'string') return;
+  let data; try { data = JSON.parse(e.data); } catch(err){ return; }
+  if (data.event === 'onStateChange' && data.info !== 1) {
+    spinningRecordId = null; // 一時停止/終了したら回転も止める
+  }
+});
+
+
+
+const EYE_HEIGHT = 0.05;  // 地面から目線までの高さ(world units) ※建物スケールに対して人間らしい比率にするため、さらに1/10に縮小
+const MOVE_SPEED = 0.6;   // units/sec ※目線の縮小に合わせて速度も比例縮小
+
+// --- ジャンプ(月の重力を意識: 地球相当の重力の1/6として計算) ---
+const EARTH_LIKE_GRAVITY_REF = 0.55;         // 「地球ならこのくらい」という基準値(仮)
+const MOON_GRAVITY = EARTH_LIKE_GRAVITY_REF / 6; // 月は1/6重力 → 同じ初速で6倍高く・6倍長く滞空する
+const JUMP_VELOCITY = 0.42;                  // 初速(units/sec)。値を上げるほど高くジャンプする
+const JUMP_TIME_SCALE = 1.5;                 // ジャンプの内部時間の進み方を1.5倍速に(高さ・滞空比率は変えず、動きのキビキビ感だけ上げる)
+let jumpOffset = 0;
+let jumpVelocity = 0;
+let isJumping = false;
 const keys = {};
 let walkMode = false;
 const clock = new THREE.Clock();
@@ -297,12 +716,23 @@ const clock = new THREE.Clock();
 window.addEventListener('keydown', (e) => {
   keys[e.code] = true;
   if (e.code === 'KeyG') toggleWalkMode();
+  if (e.code === 'KeyM') toggleMoonOverlay();
+  if (e.code === 'Space') {
+    e.preventDefault(); // ページスクロールを防止
+    if (walkMode && !isJumping) {
+      isJumping = true;
+      jumpVelocity = JUMP_VELOCITY;
+    }
+  }
 });
 window.addEventListener('keyup', (e) => { keys[e.code] = false; });
 
 function toggleWalkMode(){
   walkMode = !walkMode;
   document.getElementById('mode-label').textContent = walkMode ? '地上モード(WASDで移動)' : '俯瞰モード';
+  jumpOffset = 0;
+  jumpVelocity = 0;
+  isJumping = false;
   if (walkMode) {
     // カメラを現在のXZ位置のまま、地面+目線の高さへスナップ
     const groundY = getTerrainHeightAt(camera.position.x, camera.position.z);
@@ -340,9 +770,21 @@ function updateWalkMovement(delta){
     camera.position.add(move);
   }
 
-  // 常に地形の高さ+目線の高さにスナップ(地面を歩いているように見せる)
+  // ジャンプの物理演算(月重力=地球換算の1/6。内部時間を1.5倍速にして動きをキビキビさせる)
+  if (isJumping) {
+    const jumpDelta = delta * JUMP_TIME_SCALE;
+    jumpVelocity -= MOON_GRAVITY * jumpDelta;
+    jumpOffset += jumpVelocity * jumpDelta;
+    if (jumpOffset <= 0) {
+      jumpOffset = 0;
+      jumpVelocity = 0;
+      isJumping = false;
+    }
+  }
+
+  // 常に地形の高さ+目線の高さ(+ジャンプ分)にスナップ(地面を歩いているように見せる)
   const groundY = getTerrainHeightAt(camera.position.x, camera.position.z);
-  camera.position.y = groundY + EYE_HEIGHT;
+  camera.position.y = groundY + EYE_HEIGHT + jumpOffset;
 
   // 注視点をカメラのすぐ前方に保つ(OrbitControlsを疑似FPS視点として使うためのハック)
   controls.target.copy(camera.position).addScaledVector(forward, 0.01);
@@ -355,6 +797,7 @@ function animate(){
   requestAnimationFrame(animate);
   const delta = clock.getDelta();
   updateWalkMovement(delta);
+  if (spinningRecordId !== null) recordGroup.rotation.y += delta * 3;
   controls.update();
   renderer.render(scene, camera);
 }
@@ -364,6 +807,244 @@ window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth/window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
+});
+</script>
+
+<!-- =========================================================
+     月オーバーレイ(Mキーで表示/非表示)
+     ---------------------------------------------------------
+     moon_prototype.htmlのロジックをそのまま移植(説明パネルのみ省略)。
+     メイン画面とは別のcanvas・renderer・sceneで独立して動かし、
+     表示中だけレンダーループとポインター操作を有効にする。
+     ========================================================= -->
+<script>
+const moonOverlayEl = document.getElementById('moon-overlay');
+const moonCanvas = document.getElementById('moon-canvas');
+const moonRenderer = new THREE.WebGLRenderer({ canvas: moonCanvas, antialias:true, alpha:true });
+moonRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+moonRenderer.setSize(window.innerWidth, window.innerHeight);
+moonRenderer.outputEncoding = THREE.sRGBEncoding;
+
+const moonScene = new THREE.Scene(); // background=null(下の半透明backdropが透けて見える)
+
+const moonCamera = new THREE.PerspectiveCamera(40, window.innerWidth/window.innerHeight, 0.1, 200);
+moonCamera.position.set(0, 0, 13);
+moonCamera.lookAt(0, 0, 0);
+
+// 星空(背景の賑やかしのみ)
+{
+  const starGeo = new THREE.BufferGeometry();
+  const count = 1200;
+  const positions = new Float32Array(count*3);
+  for(let i=0;i<count;i++){
+    const r = 60 + Math.random()*80;
+    const theta = Math.random()*Math.PI*2;
+    const phi = Math.acos((Math.random()*2)-1);
+    positions[i*3]   = r*Math.sin(phi)*Math.cos(theta);
+    positions[i*3+1] = r*Math.sin(phi)*Math.sin(theta);
+    positions[i*3+2] = r*Math.cos(phi) - 20;
+  }
+  starGeo.setAttribute('position', new THREE.BufferAttribute(positions,3));
+  moonScene.add(new THREE.Points(starGeo, new THREE.PointsMaterial({ color:0xffffff, size:0.06, transparent:true, opacity:0.85 })));
+}
+
+// ライティング: 左側からの太陽光(sceneに直接addしているのでワールド空間固定=影の位置は固定)
+moonScene.add(new THREE.AmbientLight(0x30313a, 0.55));
+const moonKeyLight = new THREE.DirectionalLight(0xfff6e6, 1.35);
+moonKeyLight.position.set(-9, 2, 4);
+moonScene.add(moonKeyLight);
+const moonRimLight = new THREE.PointLight(0x8fa0ff, 0.22, 40);
+moonRimLight.position.set(8, -1, -6);
+moonScene.add(moonRimLight);
+
+// 経度phi(0〜2π)・極角theta(0=北極, π=南極) → 単位球上の方向ベクトル
+function moonSphericalToDirection(phi, theta){
+  return new THREE.Vector3(
+    -Math.cos(phi) * Math.sin(theta),
+    Math.cos(theta),
+    Math.sin(phi) * Math.sin(theta)
+  );
+}
+
+// テクスチャの経度較正(実測): 180°+東へ90°分
+const MOON_TEXTURE_LON_CALIBRATION = Math.PI + Math.PI/2;
+const MOON_FRONT_PHI = Math.PI/2 + MOON_TEXTURE_LON_CALIBRATION;
+const MOON_LON_DIRECTION = 1;
+
+function moonLatLonToSpherical(latDeg, lonDeg){
+  const theta = (90 - latDeg) * Math.PI / 180;
+  const phi = MOON_FRONT_PHI + MOON_LON_DIRECTION * (lonDeg * Math.PI / 180);
+  return { theta, phi };
+}
+
+// シュレディンガークレーター: 南緯75.1°・東経132.4°(実座標)+ホバー位置の実測調整分(東へ90°)
+const MOON_SCHRODINGER_LAT = -75.1;
+const MOON_SCHRODINGER_LON = 132.4 + 90;
+const { theta: MOON_SCHRODINGER_THETA, phi: MOON_SCHRODINGER_PHI } = moonLatLonToSpherical(MOON_SCHRODINGER_LAT, MOON_SCHRODINGER_LON);
+const MOON_SCHRODINGER_DIR = moonSphericalToDirection(MOON_SCHRODINGER_PHI, MOON_SCHRODINGER_THETA);
+const MOON_SCHRODINGER_ANGULAR_RADIUS = 0.09;
+
+const MOON_RADIUS = 4.5;
+const moonGeo = new THREE.SphereGeometry(MOON_RADIUS, 96, 96);
+const moonMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness:1.0, metalness:0.0 });
+const moonMesh = new THREE.Mesh(moonGeo, moonMat);
+moonMesh.rotation.y = MOON_TEXTURE_LON_CALIBRATION;
+
+new THREE.TextureLoader().load('./2k_moon.jpg', (tex) => {
+  tex.encoding = THREE.sRGBEncoding;
+  moonMat.map = tex;
+
+  // 同じ画像をグレースケール化して簡易バンプマップとして利用
+  const img = tex.image;
+  const cv = document.createElement('canvas');
+  cv.width = img.width; cv.height = img.height;
+  const ctx = cv.getContext('2d');
+  ctx.drawImage(img, 0, 0);
+  const imgData = ctx.getImageData(0, 0, cv.width, cv.height);
+  const d = imgData.data;
+  for (let i = 0; i < d.length; i += 4){
+    const g = (d[i] + d[i+1] + d[i+2]) / 3;
+    d[i] = d[i+1] = d[i+2] = g;
+  }
+  ctx.putImageData(imgData, 0, 0);
+  moonMat.bumpMap = new THREE.CanvasTexture(cv);
+  moonMat.bumpScale = 0.035;
+  moonMat.needsUpdate = true;
+});
+
+const moonPivot = new THREE.Group();
+moonPivot.add(moonMesh);
+moonScene.add(moonPivot);
+
+function makeMoonLabelSprite(text){
+  const size = 128;
+  const cv = document.createElement('canvas');
+  cv.width = size; cv.height = size;
+  const ctx = cv.getContext('2d');
+  ctx.font = 'bold 56px Courier New';
+  ctx.fillStyle = 'rgba(230,230,225,0.55)';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, size/2, size/2 + 4);
+  const tex = new THREE.CanvasTexture(cv);
+  const mat = new THREE.SpriteMaterial({ map: tex, transparent:true, depthTest:true });
+  const sprite = new THREE.Sprite(mat);
+  sprite.scale.set(0.32, 0.32, 0.32);
+  return sprite;
+}
+const moonNorthLabel = makeMoonLabelSprite('N');
+moonNorthLabel.position.set(0, MOON_RADIUS*1.06, 0);
+moonPivot.add(moonNorthLabel);
+const moonSouthLabel = makeMoonLabelSprite('S');
+moonSouthLabel.position.set(0, -MOON_RADIUS*1.06, 0);
+moonPivot.add(moonSouthLabel);
+
+// シュレディンガークレーターのホバー用ハイライト(面全体が発光するような光の円盤)
+function makeMoonGlowTexture(){
+  const size = 256;
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = size;
+  const ctx = cv.getContext('2d');
+  const g = ctx.createRadialGradient(size/2, size/2, 0, size/2, size/2, size/2);
+  g.addColorStop(0.0, 'rgba(255,255,255,1)');
+  g.addColorStop(0.55, 'rgba(255,255,255,0.75)');
+  g.addColorStop(1.0, 'rgba(255,255,255,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, size, size);
+  return new THREE.CanvasTexture(cv);
+}
+const moonHoverGeo = new THREE.CircleGeometry(MOON_RADIUS * MOON_SCHRODINGER_ANGULAR_RADIUS * 1.15, 48);
+const moonHoverMat = new THREE.MeshBasicMaterial({
+  map: makeMoonGlowTexture(), color:0xffffff, transparent:true, opacity:0.95,
+  blending: THREE.AdditiveBlending, depthWrite:false, side: THREE.DoubleSide,
+});
+const moonHoverRing = new THREE.Mesh(moonHoverGeo, moonHoverMat);
+moonHoverRing.position.copy(MOON_SCHRODINGER_DIR).multiplyScalar(MOON_RADIUS * 1.004);
+moonHoverRing.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1), MOON_SCHRODINGER_DIR);
+moonHoverRing.visible = false;
+moonPivot.add(moonHoverRing);
+
+// ドラッグで回転 → 離すとゆっくり「地球側の面」へ戻る
+let moonIsDragging = false;
+let moonLastPointer = null;
+let moonReturning = false;
+const MOON_ROTATE_SPEED = 0.006;
+const MOON_RETURN_SPEED = 1.1; // 半分にした戻り速度
+const moonIdentityQuat = new THREE.Quaternion();
+
+function onMoonPointerDown(e){
+  moonIsDragging = true;
+  moonReturning = false;
+  moonLastPointer = { x:e.clientX, y:e.clientY };
+}
+function onMoonPointerMove(e){
+  updateMoonHoverHighlight(e.clientX, e.clientY);
+  if (!moonIsDragging || !moonLastPointer) return;
+  const dx = e.clientX - moonLastPointer.x;
+  const dy = e.clientY - moonLastPointer.y;
+  moonLastPointer = { x:e.clientX, y:e.clientY };
+  const yawQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0), dx*MOON_ROTATE_SPEED);
+  const pitchQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1,0,0), dy*MOON_ROTATE_SPEED);
+  moonPivot.quaternion.premultiply(yawQuat).premultiply(pitchQuat);
+}
+function onMoonPointerUp(){
+  if (!moonIsDragging) return;
+  moonIsDragging = false;
+  moonLastPointer = null;
+  moonReturning = true;
+}
+moonCanvas.addEventListener('pointerdown', onMoonPointerDown);
+window.addEventListener('pointermove', onMoonPointerMove);
+window.addEventListener('pointerup', onMoonPointerUp);
+moonCanvas.addEventListener('pointerleave', () => { moonHoverRing.visible = false; });
+
+const moonRaycaster = new THREE.Raycaster();
+const moonPointerNDC = new THREE.Vector2();
+function updateMoonHoverHighlight(clientX, clientY){
+  if (!moonOverlayEl.classList.contains('active')) return;
+  moonPointerNDC.x = (clientX / window.innerWidth) * 2 - 1;
+  moonPointerNDC.y = -(clientY / window.innerHeight) * 2 + 1;
+  moonRaycaster.setFromCamera(moonPointerNDC, moonCamera);
+  const hit = moonRaycaster.intersectObject(moonMesh)[0];
+  if (!hit){ moonHoverRing.visible = false; return; }
+  const localPoint = moonPivot.worldToLocal(hit.point.clone()).normalize();
+  const angle = localPoint.angleTo(MOON_SCHRODINGER_DIR);
+  moonHoverRing.visible = angle < MOON_SCHRODINGER_ANGULAR_RADIUS * 1.15;
+}
+
+// Mキーでの表示/非表示トグル(表示中だけレンダーループを回す)
+let moonOverlayActive = false;
+let moonAnimHandle = null;
+const moonClock = new THREE.Clock();
+function toggleMoonOverlay(){
+  moonOverlayActive = !moonOverlayActive;
+  moonOverlayEl.classList.toggle('active', moonOverlayActive);
+  if (moonOverlayActive){
+    moonClock.getDelta(); // 非表示中に経過した時間を捨てる
+    moonAnimate();
+  } else if (moonAnimHandle){
+    cancelAnimationFrame(moonAnimHandle);
+    moonAnimHandle = null;
+    moonHoverRing.visible = false;
+  }
+}
+function moonAnimate(){
+  moonAnimHandle = requestAnimationFrame(moonAnimate);
+  const delta = moonClock.getDelta();
+  if (moonReturning && !moonIsDragging){
+    moonPivot.quaternion.slerp(moonIdentityQuat, Math.min(1, delta * MOON_RETURN_SPEED));
+    if (moonPivot.quaternion.angleTo(moonIdentityQuat) < 0.002){
+      moonPivot.quaternion.copy(moonIdentityQuat);
+      moonReturning = false;
+    }
+  }
+  moonRenderer.render(moonScene, moonCamera);
+}
+
+window.addEventListener('resize', () => {
+  moonCamera.aspect = window.innerWidth/window.innerHeight;
+  moonCamera.updateProjectionMatrix();
+  moonRenderer.setSize(window.innerWidth, window.innerHeight);
 });
 </script>
 </body>
